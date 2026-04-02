@@ -1,0 +1,64 @@
+local terrain = workspace.Terrain
+local regionPart = workspace:FindFirstChild("Region")
+
+if regionPart and regionPart:IsA("BasePart") then
+	local p1 = regionPart.Position - (regionPart.Size / 2)
+	local p2 = regionPart.Position + (regionPart.Size / 2)
+	p1 = Vector3.new(math.floor(p1.X/4)*4, math.floor(p1.Y/4)*4, math.floor(p1.Z/4)*4)
+	p2 = Vector3.new(math.ceil(p2.X/4)*4, math.ceil(p2.Y/4)*4, math.ceil(p2.Z/4)*4)
+
+	local region = Region3.new(p1, p2)
+	local materials, occupancies = terrain:ReadVoxels(region, 4)
+	local size = materials.Size
+	
+	local THICKNESS = 3 -- Ketebalan aman
+	local heightMap = {}
+
+	-- TAHAP 1: Bikin "Heightmap" (Mencatat titik permukaan tertinggi di setiap koordinat X, Z)
+	for x = 1, size.X do
+		heightMap[x] = {}
+		for z = 1, size.Z do
+			heightMap[x][z] = 0
+			for y = size.Y, 1, -1 do
+				if occupancies[x][y][z] > 0.1 then
+					heightMap[x][z] = y
+					break
+				end
+			end
+		end
+	end
+
+	-- TAHAP 2: Eksekusi pemotongan pintar (Anti-Bopeng)
+	for x = 1, size.X do
+		for z = 1, size.Z do
+			local myTop = heightMap[x][z]
+			if myTop > 0 then
+				
+				-- Cari permukaan TETANGGA TERENDAH. 
+				-- Ini mencegah tebing miring terpotong terlalu tinggi yang bikin bolong.
+				local minNeighborTop = myTop
+				if x > 1 and heightMap[x-1][z] > 0 then minNeighborTop = math.min(minNeighborTop, heightMap[x-1][z]) end
+				if x < size.X and heightMap[x+1][z] > 0 then minNeighborTop = math.min(minNeighborTop, heightMap[x+1][z]) end
+				if z > 1 and heightMap[x][z-1] > 0 then minNeighborTop = math.min(minNeighborTop, heightMap[x][z-1]) end
+				if z < size.Z and heightMap[x][z+1] > 0 then minNeighborTop = math.min(minNeighborTop, heightMap[x][z+1]) end
+				
+				-- Batas bawah: Cangkang harus memanjang ke bawah mengikuti tetangganya yang lebih rendah
+				local safeBottomY = math.min(myTop - THICKNESS, minNeighborTop - THICKNESS)
+				
+				-- Babad habis semua yang ada di bawah batas aman
+				for y = safeBottomY, 1, -1 do
+					if occupancies[x][y][z] > 0 then
+						local regionToDelete = Region3.new(
+							p1 + Vector3.new((x-1)*4, (y-1)*4, (z-1)*4), 
+							p1 + Vector3.new(x*4, y*4, z*4)
+						)
+						terrain:FillRegion(regionToDelete, 4, Enum.Material.Air)
+					end
+				end
+			end
+		end
+	end
+	print("✅ Optimasi Lereng Selesai: Terrain miring tertutup rapat!")
+else
+	warn("❌ Part dengan nama 'Region' tidak ditemukan di Workspace!")
+end
